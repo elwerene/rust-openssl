@@ -44,6 +44,7 @@ extern "C" {
     pub fn X509_STORE_CTX_cleanup(ctx: *mut X509_STORE_CTX);
 
     pub fn X509_STORE_add_cert(store: *mut X509_STORE, x: *mut X509) -> c_int;
+    pub fn X509_STORE_add_crl(xs: *mut X509_STORE, x: *mut X509_CRL) -> c_int;
 
     pub fn X509_STORE_set_default_paths(store: *mut X509_STORE) -> c_int;
     pub fn X509_STORE_set_flags(store: *mut X509_STORE, flags: c_ulong) -> c_int;
@@ -68,6 +69,12 @@ const_ptr_api! {
         pub fn X509_STORE_CTX_get_error(ctx: #[const_ptr_if(ossl300)] X509_STORE_CTX) -> c_int;
         pub fn X509_STORE_CTX_get_error_depth(ctx: #[const_ptr_if(ossl300)] X509_STORE_CTX) -> c_int;
         pub fn X509_STORE_CTX_get_current_cert(ctx: #[const_ptr_if(ossl300)] X509_STORE_CTX) -> *mut X509;
+        #[cfg(ossl110)]
+        pub fn X509_STORE_CTX_get1_crls(
+                    ctx: #[const_ptr_if(ossl300)] X509_STORE_CTX,
+                    nm: #[const_ptr_if(ossl300)] X509_NAME,
+                    ) -> *mut stack_st_X509_CRL;
+
     }
 }
 extern "C" {
