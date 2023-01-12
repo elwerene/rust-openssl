@@ -1645,8 +1645,7 @@ impl X509RevokedRef {
     pub fn revocation_date(&self) -> &Asn1TimeRef {
         unsafe {
             let r = X509_REVOKED_get0_revocationDate(self.as_ptr() as *const _);
-            assert!(!r.is_null());
-            Asn1TimeRef::from_ptr(r as *mut _)
+            Asn1TimeRef::from_const_ptr_opt(r).expect("revocation date must not be null")
         }
     }
 
@@ -1655,8 +1654,7 @@ impl X509RevokedRef {
     pub fn serial_number(&self) -> &Asn1IntegerRef {
         unsafe {
             let r = X509_REVOKED_get0_serialNumber(self.as_ptr() as *const _);
-            assert!(!r.is_null());
-            Asn1IntegerRef::from_ptr(r as *mut _)
+            Asn1IntegerRef::from_const_ptr_opt(r).expect("serial number must not be null")
         }
     }
 
@@ -1764,14 +1762,14 @@ impl<'a> CrlStatus<'a> {
     ) -> CrlStatus<'a> {
         match status {
             0 => CrlStatus::NotRevoked,
-            1 => {
-                assert!(!revoked_entry.is_null());
-                CrlStatus::Revoked(X509RevokedRef::from_ptr(revoked_entry))
-            }
-            2 => {
-                assert!(!revoked_entry.is_null());
-                CrlStatus::RemoveFromCrl(X509RevokedRef::from_ptr(revoked_entry))
-            }
+            1 => CrlStatus::Revoked(
+                X509RevokedRef::from_const_ptr_opt(revoked_entry)
+                    .expect("revoked entry must no be null"),
+            ),
+            2 => CrlStatus::RemoveFromCrl(
+                X509RevokedRef::from_const_ptr_opt(revoked_entry)
+                    .expect("revoked entry must no be null"),
+            ),
             _ => unreachable!(
                 "{}",
                 "X509_CRL_get0_by_{{serial,cert}} should only return 0, 1, or 2."
@@ -1834,8 +1832,7 @@ impl X509CrlRef {
     pub fn last_update(&self) -> &Asn1TimeRef {
         unsafe {
             let date = X509_CRL_get0_lastUpdate(self.as_ptr());
-            assert!(!date.is_null());
-            Asn1TimeRef::from_ptr(date as *mut _)
+            Asn1TimeRef::from_const_ptr_opt(date).expect("last update must not be null")
         }
     }
 
@@ -1877,8 +1874,7 @@ impl X509CrlRef {
     pub fn issuer_name(&self) -> &X509NameRef {
         unsafe {
             let name = X509_CRL_get_issuer(self.as_ptr());
-            assert!(!name.is_null());
-            X509NameRef::from_ptr(name)
+            X509NameRef::from_const_ptr_opt(name).expect("issuer name must not be null")
         }
     }
 
