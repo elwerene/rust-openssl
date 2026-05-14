@@ -601,9 +601,24 @@ impl X509Ref {
 
     /// Returns the list of OCSP responder URLs specified in the certificate's Authority Information
     /// Access field.
+    ///
+    /// Returns an error if any URL contains bytes that are not valid UTF-8, since OpenSSL
+    /// does not enforce that the underlying `IA5String` is ASCII.
     #[corresponds(X509_get1_ocsp)]
     pub fn ocsp_responders(&self) -> Result<Stack<OpensslString>, ErrorStack> {
-        unsafe { cvt_p(ffi::X509_get1_ocsp(self.as_ptr())).map(|p| Stack::from_ptr(p)) }
+        unsafe {
+            let stack: Stack<OpensslString> =
+                cvt_p(ffi::X509_get1_ocsp(self.as_ptr())).map(|p| Stack::from_ptr(p))?;
+            for entry in &stack {
+                let bytes = CStr::from_ptr(entry.as_ptr()).to_bytes();
+                if str::from_utf8(bytes).is_err() {
+                    return Err(ErrorStack::internal_error(
+                        "OCSP responder URL contained invalid UTF-8",
+                    ));
+                }
+            }
+            Ok(stack)
+        }
     }
 
     /// Checks that this certificate issued `subject`.
@@ -1372,7 +1387,7 @@ impl X509NameEntryRef {
     pub fn data(&self) -> &Asn1StringRef {
         unsafe {
             let data = ffi::X509_NAME_ENTRY_get_data(self.as_ptr());
-            Asn1StringRef::from_ptr(data)
+            Asn1StringRef::from_ptr(data as *mut _)
         }
     }
 
@@ -1382,7 +1397,7 @@ impl X509NameEntryRef {
     pub fn object(&self) -> &Asn1ObjectRef {
         unsafe {
             let object = ffi::X509_NAME_ENTRY_get_object(self.as_ptr());
-            Asn1ObjectRef::from_ptr(object)
+            Asn1ObjectRef::from_ptr(object as *mut _)
         }
     }
 }
@@ -2363,7 +2378,7 @@ impl X509CrlRef {
         unsafe {
             let name = X509_CRL_get_issuer(self.as_ptr());
             assert!(!name.is_null());
-            X509NameRef::from_ptr(name)
+            X509NameRef::from_ptr(name as *mut _)
         }
     }
 

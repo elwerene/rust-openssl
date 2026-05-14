@@ -1,5 +1,6 @@
 use super::super::*;
-use libc::*;
+use libc::size_t;
+use std::ffi::{c_char, c_int, c_long, c_uchar, c_ulong, c_void};
 
 cfg_if! {
     if #[cfg(ossl300)] {
@@ -14,6 +15,7 @@ cfg_if! {
             pub fn EVP_CIPHER_get_block_size(cipher: *const EVP_CIPHER) -> c_int;
             pub fn EVP_CIPHER_get_iv_length(cipher: *const EVP_CIPHER) -> c_int;
             pub fn EVP_CIPHER_get_nid(cipher: *const EVP_CIPHER) -> c_int;
+            pub fn EVP_CIPHER_get_flags(cipher: *const EVP_CIPHER) -> c_ulong;
             pub fn EVP_CIPHER_fetch(
                 ctx: *mut OSSL_LIB_CTX,
                 algorithm: *const c_char,
@@ -40,6 +42,7 @@ cfg_if! {
             pub fn EVP_CIPHER_block_size(cipher: *const EVP_CIPHER) -> c_int;
             pub fn EVP_CIPHER_iv_length(cipher: *const EVP_CIPHER) -> c_int;
             pub fn EVP_CIPHER_nid(cipher: *const EVP_CIPHER) -> c_int;
+            pub fn EVP_CIPHER_flags(cipher: *const EVP_CIPHER) -> c_ulong;
 
             pub fn EVP_CIPHER_CTX_cipher(ctx: *const EVP_CIPHER_CTX) -> *const EVP_CIPHER;
             pub fn EVP_CIPHER_CTX_block_size(ctx: *const EVP_CIPHER_CTX) -> c_int;
@@ -246,7 +249,7 @@ cfg_if! {
     }
 }
 cfg_if! {
-    if #[cfg(any(ossl111, libressl370))] {
+    if #[cfg(any(ossl111, libressl))] {
         extern "C" {
             pub fn EVP_DigestSign(
                 ctx: *mut EVP_MD_CTX,
@@ -273,7 +276,7 @@ extern "C" {
     pub fn EVP_CIPHER_CTX_copy(dst: *mut EVP_CIPHER_CTX, src: *const EVP_CIPHER_CTX) -> c_int;
 
     pub fn EVP_MD_CTX_copy_ex(dst: *mut EVP_MD_CTX, src: *const EVP_MD_CTX) -> c_int;
-    #[cfg(ossl111)]
+    #[cfg(any(ossl111, libressl))]
     pub fn EVP_MD_CTX_reset(ctx: *mut EVP_MD_CTX) -> c_int;
     pub fn EVP_CIPHER_CTX_set_key_length(ctx: *mut EVP_CIPHER_CTX, keylen: c_int) -> c_int;
     pub fn EVP_CIPHER_CTX_set_padding(ctx: *mut EVP_CIPHER_CTX, padding: c_int) -> c_int;

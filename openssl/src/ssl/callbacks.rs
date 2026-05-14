@@ -37,14 +37,23 @@ where
     unsafe {
         let ctx = X509StoreContextRef::from_ptr_mut(x509_ctx);
         let ssl_idx = X509StoreContext::ssl_idx().expect("BUG: store context ssl index missing");
+        let session_ctx_index =
+            try_get_session_ctx_index().expect("BUG: session context index initialization failed");
         let verify_idx = SslContext::cached_ex_index::<F>();
 
+        // The verify-callback function pointer is copied from the SSL_CTX into the SSL at SSL_new
+        // time and is *not* updated by SSL_set_SSL_CTX (e.g. an SNI swap). So this trampoline can
+        // fire even after the SSL's current SSL_CTX has been replaced. Look up the closure on the
+        // original SSL_CTX (stashed at SESSION_CTX_INDEX in Ssl::new) rather than on the current
+        // one, otherwise the lookup would miss and the .expect() would abort the process.
+        //
         // raw pointer shenanigans to break the borrow of ctx
         // the callback can't mess with its own ex_data slot so this is safe
         let verify = ctx
             .ex_data(ssl_idx)
             .expect("BUG: store context missing ssl")
-            .ssl_context()
+            .ex_data(*session_ctx_index)
+            .expect("BUG: session context missing")
             .ex_data(verify_idx)
             .expect("BUG: verify callback missing") as *const F;
 
@@ -69,10 +78,16 @@ where
 {
     unsafe {
         let ssl = SslRef::from_ptr_mut(ssl);
+        let session_ctx_index =
+            try_get_session_ctx_index().expect("BUG: session context index initialization failed");
         let callback_idx = SslContext::cached_ex_index::<F>();
 
+        // See raw_verify for the rationale: psk_client_callback is copied from the SSL_CTX into
+        // the SSL at SSL_new time and is not updated by SSL_set_SSL_CTX, so we must look up the
+        // closure on the original SSL_CTX rather than the current (potentially swapped) one.
         let callback = ssl
-            .ssl_context()
+            .ex_data(*session_ctx_index)
+            .expect("BUG: session context missing")
             .ex_data(callback_idx)
             .expect("BUG: psk callback missing") as *const F;
         let hint = if !hint.is_null() {
@@ -84,8 +99,10 @@ where
         let identity_sl = util::from_raw_parts_mut(identity as *mut u8, max_identity_len as usize);
         #[allow(clippy::unnecessary_cast)]
         let psk_sl = util::from_raw_parts_mut(psk as *mut u8, max_psk_len as usize);
+        let psk_cap = psk_sl.len();
         match (*callback)(ssl, hint, identity_sl, psk_sl) {
-            Ok(psk_len) => psk_len as u32,
+            Ok(psk_len) if psk_len <= psk_cap => psk_len as u32,
+            Ok(_) => 0,
             Err(e) => {
                 e.put();
                 0
@@ -109,10 +126,16 @@ where
 {
     unsafe {
         let ssl = SslRef::from_ptr_mut(ssl);
+        let session_ctx_index =
+            try_get_session_ctx_index().expect("BUG: session context index initialization failed");
         let callback_idx = SslContext::cached_ex_index::<F>();
 
+        // See raw_verify for the rationale: psk_server_callback is copied from the SSL_CTX into
+        // the SSL at SSL_new time and is not updated by SSL_set_SSL_CTX, so we must look up the
+        // closure on the original SSL_CTX rather than the current (potentially swapped) one.
         let callback = ssl
-            .ssl_context()
+            .ex_data(*session_ctx_index)
+            .expect("BUG: session context missing")
             .ex_data(callback_idx)
             .expect("BUG: psk callback missing") as *const F;
         let identity = if identity.is_null() {
@@ -123,8 +146,10 @@ where
         // Give the callback mutable slices into which it can write the psk.
         #[allow(clippy::unnecessary_cast)]
         let psk_sl = util::from_raw_parts_mut(psk as *mut u8, max_psk_len as usize);
+        let psk_cap = psk_sl.len();
         match (*callback)(ssl, identity, psk_sl) {
-            Ok(psk_len) => psk_len as u32,
+            Ok(psk_len) if psk_len <= psk_cap => psk_len as u32,
+            Ok(_) => 0,
             Err(e) => {
                 e.put();
                 0
@@ -392,11 +417,13 @@ where
         .expect("BUG: stateless cookie generate callback missing") as *const F;
     #[allow(clippy::unnecessary_cast)]
     let slice = util::from_raw_parts_mut(cookie as *mut u8, ffi::SSL_COOKIE_LENGTH as usize);
+    let cap = slice.len();
     match (*callback)(ssl, slice) {
-        Ok(len) => {
+        Ok(len) if len <= cap => {
             *cookie_len = len as size_t;
             1
         }
+        Ok(_) => 0,
         Err(e) => {
             e.put();
             0
@@ -443,11 +470,13 @@ where
         #[allow(clippy::unnecessary_cast)]
         let slice =
             util::from_raw_parts_mut(cookie as *mut u8, ffi::DTLS1_COOKIE_LENGTH as usize - 1);
+        let cap = slice.len();
         match (*callback)(ssl, slice) {
-            Ok(len) => {
+            Ok(len) if len <= cap => {
                 *cookie_len = len as c_uint;
                 1
             }
+            Ok(_) => 0,
             Err(e) => {
                 e.put();
                 0
@@ -515,9 +544,6 @@ where
         match (*callback)(ssl, ectx, cert) {
             Ok(None) => 0,
             Ok(Some(buf)) => {
-                *outlen = buf.as_ref().len();
-                *out = buf.as_ref().as_ptr();
-
                 let idx = Ssl::cached_ex_index::<CustomExtAddState<T>>();
                 let mut buf = Some(buf);
                 let new = match ssl.ex_data_mut(idx) {
@@ -530,6 +556,14 @@ where
                 if new {
                     ssl.set_ex_data(idx, CustomExtAddState(buf));
                 }
+
+                // Capture the out pointer AFTER buf has been moved into ex_data.
+                // The move invalidates any previous pointer into buf.
+                let stored = ssl.ex_data(idx).unwrap();
+                let data = stored.0.as_ref().unwrap().as_ref();
+                *outlen = data.len();
+                *out = data.as_ptr();
+
                 1
             }
             Err(alert) => {

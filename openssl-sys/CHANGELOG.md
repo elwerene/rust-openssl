@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+### Changed
+
+* On macOS, the Homebrew auto-detection now prefers `openssl@4`, falls back to `openssl@3`/`openssl@3.0`, and no longer looks for `openssl@1.1`.
+
+## [v0.9.115] - 2026-05-03
+
+### Added
+
+* Added `OSSL_PARAM_modified` and exposed the `OSSL_PARAM` struct fields, so callers can detect whether a get-params call wrote into a parameter and read its `return_size`.
+* Added `EVP_CIPHER_flags` / `EVP_CIPHER_get_flags`, the `EVP_CIPH_MODE` mask, and the `EVP_CIPH_WRAP_MODE` constant.
+
+### Changed
+
+* Bumped MSRV to 1.80.
+
+## [v0.9.114] - 2026-04-19
+
+### Added
+
+* Added support for OpenSSL 4.x.
+* Added support for LibreSSL 4.3.x.
+
+### Changed
+
+* Marked `BIO_get_mem_data` as `unsafe` on AWS-LC -- this matches other backends.
+* `X509_NAME_ENTRY_get_data`, `X509_NAME_ENTRY_get_object`, and `X509_CRL_get_issuer` now return `*const` pointers under `ossl400` to match OpenSSL 4.
+
+## [v0.9.113] - 2026-04-12
+
+### Added
+
+* Exposed `EVP_MD_CTX_reset` on LibreSSL.
+
+### Changed
+
+* Bumped `aws-lc-sys` to 0.39.
+
 ## [v0.9.112] - 2026-03-11
 
 ### Added
@@ -709,7 +746,9 @@ Fixed builds against OpenSSL built with `no-cast`.
 * Added `X509_verify` and `X509_REQ_verify`.
 * Added `EVP_MD_type` and `EVP_GROUP_get_curve_name`.
 
-[Unreleased]: https://github.com/rust-openssl/rust-openssl/compare/openssl-sys-v0.9.112..master
+[Unreleased]: https://github.com/rust-openssl/rust-openssl/compare/openssl-sys-v0.9.114..master
+[v0.9.114]: https://github.com/rust-openssl/rust-openssl/compare/openssl-sys-v0.9.113...openssl-sys-v0.9.114
+[v0.9.113]: https://github.com/rust-openssl/rust-openssl/compare/openssl-sys-v0.9.112...openssl-sys-v0.9.113
 [v0.9.112]: https://github.com/rust-openssl/rust-openssl/compare/openssl-sys-v0.9.111...openssl-sys-v0.9.112
 [v0.9.111]: https://github.com/rust-openssl/rust-openssl/compare/openssl-sys-v0.9.110...openssl-sys-v0.9.111
 [v0.9.110]: https://github.com/rust-openssl/rust-openssl/compare/openssl-sys-v0.9.109...openssl-sys-v0.9.110
