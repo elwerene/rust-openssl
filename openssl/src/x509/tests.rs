@@ -18,15 +18,13 @@ use crate::x509::extension::{
 use crate::x509::store::X509Lookup;
 use crate::x509::store::X509StoreBuilder;
 use crate::x509::verify::{X509VerifyFlags, X509VerifyParam};
-#[cfg(any(ossl102, libressl261))]
-use crate::x509::CrlReason;
 #[cfg(ossl110)]
 use crate::x509::X509Builder;
 #[cfg(any(ossl110, boringssl, awslc))]
 use crate::x509::X509PurposeId;
-use crate::x509::{
-    CrlNumber, X509CrlBuilder, X509PurposeRef, X509Ref, X509Revoked, X509RevokedBuilder,
-};
+use crate::x509::{CrlNumber, X509CrlBuilder, X509PurposeRef, X509Ref, X509RevokedBuilder};
+#[cfg(any(ossl102, libressl261))]
+use crate::x509::{CrlReason, X509Revoked};
 use crate::x509::{
     CrlStatus, X509Crl, X509Extension, X509Name, X509Req, X509StoreContext, X509VerifyResult, X509,
 };
