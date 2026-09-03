@@ -637,7 +637,7 @@ impl X509Ref {
     ///
     /// Note that `0` return value stands for version 1, `1` for version 2 and so on.
     #[corresponds(X509_get_version)]
-    #[cfg(any(ossl110, libressl281))]
+    #[cfg(any(ossl110, libressl291))]
     #[allow(clippy::unnecessary_cast)]
     pub fn version(&self) -> i32 {
         unsafe { ffi::X509_get_version(self.as_ptr()) as i32 }
@@ -1840,6 +1840,16 @@ impl X509RevokedRef {
     }
 }
 
+impl fmt::Debug for X509RevokedRef {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("X509RevokedRef")
+            .field("der", &self.to_der())
+            .field("revocation_date", &self.revocation_date())
+            .field("serial_number", &self.serial_number().to_bn())
+            .finish()
+    }
+}
+
 /// The CRL entry extension identifying the reason for revocation see [`CrlReason`],
 /// this is as defined in RFC 5280 Section 5.3.1.
 pub enum ReasonCode {}
@@ -1881,6 +1891,30 @@ unsafe impl ExtensionType for CrlNumber {
     const NID: Nid = Nid::CRL_NUMBER;
 
     type Output = Asn1Integer;
+}
+
+/// The caller has to ensure `crl` is a valid pointer for the lifetime of the returned context.
+unsafe fn crl_x509v3_context<'a>(
+    issuer: &X509Ref,
+    crl: *mut ffi::X509_CRL,
+    conf: Option<&'a ConfRef>,
+) -> X509v3Context<'a> {
+    let mut ctx = mem::zeroed();
+
+    ffi::X509V3_set_ctx(
+        &mut ctx,
+        issuer.as_ptr(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+        crl,
+        0,
+    );
+
+    if let Some(conf) = conf {
+        ffi::X509V3_set_nconf(&mut ctx, conf.as_ptr());
+    }
+
+    X509v3Context(ctx, PhantomData)
 }
 
 /// A builder used to construct a version 2 `X509Crl`.
@@ -1950,24 +1984,7 @@ impl X509CrlBuilder {
         issuer: &X509Ref,
         conf: Option<&'a ConfRef>,
     ) -> X509v3Context<'a> {
-        unsafe {
-            let mut ctx = mem::zeroed();
-
-            ffi::X509V3_set_ctx(
-                &mut ctx,
-                issuer.as_ptr(),
-                ptr::null_mut(),
-                ptr::null_mut(),
-                self.0.as_ptr(),
-                0,
-            );
-
-            if let Some(conf) = conf {
-                ffi::X509V3_set_nconf(&mut ctx, conf.as_ptr());
-            }
-
-            X509v3Context(ctx, PhantomData)
-        }
+        unsafe { crl_x509v3_context(issuer, self.0.as_ptr(), conf) }
     }
 
     /// Add a revoked certificate to the CRL.
@@ -2089,16 +2106,6 @@ pub enum CrlStatus<'a> {
     RemoveFromCrl(&'a X509RevokedRef),
 }
 
-impl fmt::Debug for X509RevokedRef {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("X509RevokedRef")
-            .field("der", &self.to_der())
-            .field("revocation_date", &self.revocation_date())
-            .field("serial_number", &self.serial_number().to_bn())
-            .finish()
-    }
-}
-
 impl<'a> CrlStatus<'a> {
     // Helper used by the X509_CRL_get0_by_* methods to convert their return
     // value to the status enum.
@@ -2150,9 +2157,9 @@ impl X509Crl {
         ffi::d2i_X509_CRL
     }
 
-    #[cfg(any(ossl110, libressl281))]
+    #[cfg(any(ossl110, libressl291))]
     const X509_VERSION_3: i32 = 2;
-    #[cfg(any(ossl110, libressl281))]
+    #[cfg(any(ossl110, libressl291))]
     const X509_CRL_VERSION_2: i32 = 1;
 
     // if not cfg(ossl110) issuer_cert is unused
@@ -2166,7 +2173,7 @@ impl X509Crl {
                 issuer_cert.subject_name().as_ptr(),
             ))?;
 
-            #[cfg(any(ossl110, libressl281))]
+            #[cfg(any(ossl110, libressl291))]
             if issuer_cert.version() >= Self::X509_VERSION_3 {
                 use crate::x509::extension::AuthorityKeyIdentifier;
 
@@ -2179,24 +2186,7 @@ impl X509Crl {
                     ))?;
                 }
 
-                let context = {
-                    let mut ctx = std::mem::MaybeUninit::<ffi::X509V3_CTX>::zeroed();
-                    ffi::X509V3_set_ctx(
-                        ctx.as_mut_ptr(),
-                        issuer_cert.as_ptr(),
-                        std::ptr::null_mut(),
-                        std::ptr::null_mut(),
-                        crl.as_ptr(),
-                        0,
-                    );
-                    let mut ctx = ctx.assume_init();
-
-                    if let Some(conf) = conf {
-                        ffi::X509V3_set_nconf(&mut ctx, conf.as_ptr());
-                    }
-
-                    X509v3Context(ctx, PhantomData)
-                };
+                let context = crl_x509v3_context(issuer_cert, crl.as_ptr(), conf);
 
                 let ext = AuthorityKeyIdentifier::new().keyid(true).build(&context)?;
                 cvt(ffi::X509_CRL_add_ext(crl.as_ptr(), ext.as_ptr(), -1))?;
@@ -2213,7 +2203,7 @@ impl X509Crl {
     }
 
     /// Note that `0` return value stands for version 1, `1` for version 2.
-    #[cfg(any(ossl110, libressl281))]
+    #[cfg(any(ossl110, libressl291))]
     #[corresponds(X509_CRL_get_version)]
     pub fn version(&self) -> i32 {
         unsafe { ffi::X509_CRL_get_version(self.as_ptr()) as i32 }
@@ -2292,7 +2282,7 @@ impl X509Crl {
     /// This is an internal function, therefore the caller is expected to ensure not to call this with a CRLv1
     /// Set the crl_number extension's value.
     /// If the extension is not present, it will be added.
-    #[cfg(any(ossl110, libressl281))]
+    #[cfg(any(ossl110, libressl291))]
     fn set_crl_number(&mut self, value: &BigNum) -> Result<(), ErrorStack> {
         debug_assert_eq!(self.version(), Self::X509_CRL_VERSION_2);
         unsafe {
@@ -2312,7 +2302,7 @@ impl X509Crl {
     /// Increment the crl number (or try to add the extension if not present)
     ///
     /// Returns the new crl number, unless self is a crlv1, which does not support extensions
-    #[cfg(any(ossl110, libressl281))]
+    #[cfg(any(ossl110, libressl291))]
     pub fn increment_crl_number(&mut self) -> Result<Option<BigNum>, ErrorStack> {
         if self.version() == Self::X509_CRL_VERSION_2 {
             let new_crl_number = if let Some(mut n) = self.read_crl_number()? {
@@ -2333,9 +2323,9 @@ impl X509Crl {
     /// Revoke the given certificate.
     ///
     /// This function won't produce duplicate entries in case the certificate was already revoked.
-    /// Sets the CRL's last_updated time to the current time before returning irregardless of the given certificate.
+    /// Sets the CRL's last_updated time to the current time before returning regardless of the given certificate.
     pub fn revoke(&mut self, to_revoke: &X509) -> Result<(), RevocationError> {
-        #[cfg(any(ossl110, libressl281, boringssl, awslc))]
+        #[cfg(any(ossl110, libressl291, boringssl, awslc))]
         {
             // when quering the CRL by certificate, the issuer name must match,
             // i.e. get_by_cert will not return an entry for cert's with a different issuer name even if they are present in the CRL
